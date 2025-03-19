@@ -3,4 +3,4 @@ project(Flare)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_library(Flare SHARED library.cpp)
+add_library(Flare SHARED src/library.cpp)
