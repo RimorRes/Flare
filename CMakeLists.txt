@@ -3,15 +3,18 @@ project(Flare)
 
 set(CMAKE_CXX_STANDARD 20)
 
-find_package(glfw3 REQUIRED)
+add_library(${PROJECT_NAME} SHARED src/libflare.cpp)
+target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
 find_package(Vulkan REQUIRED)
-find_package(glm REQUIRED)
+target_include_directories(${PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
 
-add_library(Flare SHARED src/library.cpp
-)
-target_include_directories(Flare PUBLIC ${CMAKE_SOURCE_DIR}/include)
+find_package(glm CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} glm::glm)
 
-target_link_libraries(Flare PUBLIC glfw vulkan glm::glm)
+find_package(glfw3 CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} glfw)
 
 # Option to enable/disable building examples
 option(BUILD_EXAMPLES "Build example applications" OFF)
