@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
 #include <vector>
 #include <cstdlib>
@@ -13,6 +14,24 @@
 #include <algorithm>
 
 
+
+std::vector<char> readFile(const std::string& filename) {
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file: " + filename);
+    }
+
+    const std::streamsize fileSize = file.tellg();
+    std::vector<char> buffer(static_cast<size_t>(fileSize));
+
+    file.seekg(0);
+    file.read(buffer.data(), fileSize);
+
+    file.close();
+
+    return buffer;
+}
 
 bool checkExtensionSupport(const std::vector<const char*>& requiredExtensions) {
     // Fetching available extensions
@@ -65,7 +84,7 @@ VkResult CreateDebugUtilsMessengerEXT(
 
 void DestroyDebugUtilsMessengerEXT(
     VkInstance instance,
-    VkDebugUtilsMessengerEXT debugMessenger,
+    const VkDebugUtilsMessengerEXT debugMessenger,
     const VkAllocationCallbacks* pAllocator) {
 
     const auto func = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
@@ -112,9 +131,10 @@ void TriangleApp::initVulkan() {
     createLogicalDevice();
     createSwapChain();
     createImageViews();
+    createGraphicsPipeline();
 }
 
-void TriangleApp::mainLoop() {
+void TriangleApp::mainLoop() const {
     while (!glfwWindowShouldClose(window) && !interrupt) {
         glfwPollEvents();
     }
@@ -362,6 +382,57 @@ void TriangleApp::createImageViews() {
     }
 }
 
+void TriangleApp::createGraphicsPipeline() const {
+    const auto vertShaderCode = readFile("data/shaders/vert.spv");
+    const auto fragShaderCode = readFile("data/shaders/frag.spv");
+
+    VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+    VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+    VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertShaderStageInfo.module = vertShaderModule;
+    vertShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragShaderStageInfo.module = fragShaderModule;
+    fragShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+    std::vector<VkDynamicState> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+
+
+    vkDestroyShaderModule(device, fragShaderModule, nullptr);
+    vkDestroyShaderModule(device, vertShaderModule, nullptr);
+}
+
+VkShaderModule TriangleApp::createShaderModule(const std::vector<char>& code) const {
+    VkShaderModuleCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = code.size();
+    createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+    VkShaderModule shaderModule;
+    if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create shader module!");
+    }
+
+    return shaderModule;
+}
+
 VkSurfaceFormatKHR TriangleApp::selectSwapSurfaceFormat(
     const std::vector<VkSurfaceFormatKHR> &availableFormats) {
 
@@ -387,7 +458,7 @@ VkPresentModeKHR TriangleApp::selectSwapPresentMode(
     return VK_PRESENT_MODE_FIFO_KHR;
 }
 
-VkExtent2D TriangleApp::selectSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) {
+VkExtent2D TriangleApp::selectSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) const {
 
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
         return capabilities.currentExtent;
@@ -409,7 +480,7 @@ VkExtent2D TriangleApp::selectSwapExtent(const VkSurfaceCapabilitiesKHR &capabil
     return actualExtent;
 }
 
-SwapChainSupportDetails TriangleApp::querySwapChainSupport(VkPhysicalDevice device) {
+SwapChainSupportDetails TriangleApp::querySwapChainSupport(VkPhysicalDevice device) const {
     SwapChainSupportDetails details = {};
 
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
@@ -433,7 +504,7 @@ SwapChainSupportDetails TriangleApp::querySwapChainSupport(VkPhysicalDevice devi
     return details;
 }
 
-bool TriangleApp::isDeviceSuitable(VkPhysicalDevice device) {
+bool TriangleApp::isDeviceSuitable(VkPhysicalDevice device) const {
     // TODO: auto device suitability ranking OR user selection
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceFeatures deviceFeatures;

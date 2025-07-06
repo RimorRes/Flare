@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <optional>
+#include <string>
 
 #ifdef NDEBUG
 constexpr bool enableValidationLayers = false;
@@ -30,7 +31,7 @@ struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
 
-    bool isComplete() const {
+    [[nodiscard]] bool isComplete() const {
         return graphicsFamily.has_value() && presentFamily.has_value();
     }
 };
@@ -41,6 +42,7 @@ struct SwapChainSupportDetails {
     std::vector<VkPresentModeKHR> presentModes;
 };
 
+std::vector<char> readFile(const std::string& filename);
 
 bool checkExtensionSupport(const std::vector<const char*>& requiredExtensions);
 
@@ -93,7 +95,7 @@ private:
 
     void initWindow();
     void initVulkan();
-    void mainLoop();
+    void mainLoop() const;
     void cleanup();
 
     void createInstance();
@@ -104,14 +106,16 @@ private:
     void createLogicalDevice();
     void createSwapChain();
     void createImageViews();
+    void createGraphicsPipeline() const;
 
+    [[nodiscard]] VkShaderModule createShaderModule(const std::vector<char>& code) const;
     static VkSurfaceFormatKHR selectSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     static VkPresentModeKHR selectSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
-    VkExtent2D selectSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
-    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
-    bool isDeviceSuitable(VkPhysicalDevice device);
-    static bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
+    [[nodiscard]] VkExtent2D selectSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
+    [[nodiscard]] SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
+    [[nodiscard]] bool isDeviceSuitable(VkPhysicalDevice device) const;
+    [[nodiscard]] static bool checkDeviceExtensionSupport(VkPhysicalDevice device);
+    [[nodiscard]] QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
     static std::vector<const char*> getRequiredExtensions();
 
 };
