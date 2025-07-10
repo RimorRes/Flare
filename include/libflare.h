@@ -89,8 +89,11 @@ private:
     std::vector<VkImage> swapChainImages;
     VkFormat swapChainImageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D swapChainExtent = {};
-
     std::vector<VkImageView> swapChainImageViews;
+
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkPipeline graphicsPipeline = VK_NULL_HANDLE;
 
 
     void initWindow();
@@ -106,7 +109,8 @@ private:
     void createLogicalDevice();
     void createSwapChain();
     void createImageViews();
-    void createGraphicsPipeline() const;
+    void createRenderPass();
+    void createGraphicsPipeline();
 
     [[nodiscard]] VkShaderModule createShaderModule(const std::vector<char>& code) const;
     static VkSurfaceFormatKHR selectSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
