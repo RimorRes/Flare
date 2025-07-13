@@ -145,6 +145,8 @@ void TriangleApp::mainLoop() {
         glfwPollEvents();
         drawFrame();
     }
+
+    vkDeviceWaitIdle(device);
 }
 
 void TriangleApp::cleanup() {
