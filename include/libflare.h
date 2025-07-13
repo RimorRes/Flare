@@ -95,10 +95,19 @@ private:
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline graphicsPipeline = VK_NULL_HANDLE;
 
+    std::vector<VkFramebuffer> swapChainFramebuffers;
+
+    VkCommandPool commandPool = VK_NULL_HANDLE;
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+
+    VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
+    VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
+    VkFence inFlightFence = VK_NULL_HANDLE;
+
 
     void initWindow();
     void initVulkan();
-    void mainLoop() const;
+    void mainLoop();
     void cleanup();
 
     void createInstance();
@@ -111,7 +120,14 @@ private:
     void createImageViews();
     void createRenderPass();
     void createGraphicsPipeline();
+    void createFramebuffers();
+    void createCommandPool();
+    void createCommandBuffer();
+    void createSyncObjects();
 
+    void drawFrame();
+
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const;
     [[nodiscard]] VkShaderModule createShaderModule(const std::vector<char>& code) const;
     static VkSurfaceFormatKHR selectSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     static VkPresentModeKHR selectSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
