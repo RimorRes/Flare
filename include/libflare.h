@@ -18,12 +18,20 @@ constexpr bool enableValidationLayers = true;
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
 };
 
 const std::vector<const char*> deviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    VK_KHR_MULTIVIEW_EXTENSION_NAME
+};
+
+const std::vector<const char*> instanceExtensions = {
+    VK_KHR_DISPLAY_EXTENSION_NAME,
+    VK_KHR_GET_DISPLAY_PROPERTIES_2_EXTENSION_NAME
 };
 
 
@@ -43,8 +51,6 @@ struct SwapChainSupportDetails {
 };
 
 std::vector<char> readFile(const std::string& filename);
-
-bool checkExtensionSupport(const std::vector<const char*>& requiredExtensions);
 
 bool checkValidationLayerSupport();
 
@@ -98,17 +104,21 @@ private:
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
     VkCommandPool commandPool = VK_NULL_HANDLE;
-    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    std::vector<VkCommandBuffer> commandBuffers = std::vector<VkCommandBuffer>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
 
-    VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
-    VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
-    VkFence inFlightFence = VK_NULL_HANDLE;
+    std::vector<VkSemaphore> imageAvailableSemaphores = std::vector<VkSemaphore>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+    std::vector<VkSemaphore> renderFinishedSemaphores = std::vector<VkSemaphore>();
+    std::vector<VkFence> inFlightFences = std::vector<VkFence>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+    uint32_t currentFrame = 0;
+
+    bool framebufferResized = false;
 
 
     void initWindow();
     void initVulkan();
     void mainLoop();
-    void cleanup();
+    void cleanupSwapChain() const;
+    void cleanup() const;
 
     void createInstance();
     static void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
@@ -117,27 +127,29 @@ private:
     void selectPhysicalDevice();
     void createLogicalDevice();
     void createSwapChain();
+    void recreateSwapChain();
     void createImageViews();
     void createRenderPass();
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
-    void createCommandBuffer();
+    void createCommandBuffers();
     void createSyncObjects();
 
     void drawFrame();
 
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const;
-    [[nodiscard]] VkShaderModule createShaderModule(const std::vector<char>& code) const;
+    static std::vector<const char*> getRequiredInstanceExtensions();
+    static bool checkInstanceExtensionSupport(const std::vector<const char*>& requiredExtensions);
+    [[nodiscard]] static bool checkDeviceExtensionSupport(VkPhysicalDevice device);
+    [[nodiscard]] QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
+    [[nodiscard]] bool isDeviceSuitable(VkPhysicalDevice device) const;
+    [[nodiscard]] SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
     static VkSurfaceFormatKHR selectSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     static VkPresentModeKHR selectSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
     [[nodiscard]] VkExtent2D selectSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
-    [[nodiscard]] SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
-    [[nodiscard]] bool isDeviceSuitable(VkPhysicalDevice device) const;
-    [[nodiscard]] static bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-    [[nodiscard]] QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
-    static std::vector<const char*> getRequiredExtensions();
-
+    [[nodiscard]] VkShaderModule createShaderModule(const std::vector<char>& code) const;
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const;
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 };
 
 #endif //FLARE_LIBRARY_H

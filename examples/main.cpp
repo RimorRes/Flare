@@ -8,14 +8,13 @@
 
 #include <iostream>
 #include <csignal>
-#include <stdexcept>
 #include <cstdlib>
 #include <memory>
 
 TriangleApp app;
 
 // Function to handle termination signal
-void signalHandler(int signum) {
+void signalHandler(const int signum) {
     std::cout << std::endl;
     std::cout << "Interrupt signal (" << signum << ") received.\n";
     app.interrupt = true;

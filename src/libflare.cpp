@@ -7,11 +7,11 @@
 #include <fstream>
 #include <stdexcept>
 #include <vector>
-#include <cstdlib>
 #include <optional>
 #include <set>
 #include <limits>
 #include <algorithm>
+#include <chrono>
 
 
 
@@ -31,23 +31,6 @@ std::vector<char> readFile(const std::string& filename) {
     file.close();
 
     return buffer;
-}
-
-bool checkExtensionSupport(const std::vector<const char*>& requiredExtensions) {
-    // Fetching available extensions
-    uint32_t extensionCount = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-
-    std::vector<VkExtensionProperties> extensions(extensionCount);
-    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
-
-    std::set<std::string> remainingRequiredExtensions(requiredExtensions.begin(), requiredExtensions.end());
-
-    for (const auto&[extensionName, specVersion] : extensions) {
-        remainingRequiredExtensions.erase(extensionName);
-    }
-
-    return remainingRequiredExtensions.empty();
 }
 
 bool checkValidationLayerSupport() {
@@ -101,7 +84,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData) {
 
-    std::cerr << "Validation layer: " << pCallbackData->pMessage << std::endl;
+    std::cerr << "Vk Validation layer: " << pCallbackData->pMessage << std::endl;
 
     return VK_FALSE;
 }
@@ -117,9 +100,11 @@ void TriangleApp::run() {
 void TriangleApp::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", glfwGetPrimaryMonitor(), nullptr);
+    // window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", glfwGetPrimaryMonitor(), nullptr);
+    window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", nullptr, nullptr);
+    glfwSetWindowUserPointer(window, this);
+    glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);  // Hide the cursor for a cleaner look
 
 }
@@ -136,39 +121,65 @@ void TriangleApp::initVulkan() {
     createGraphicsPipeline();
     createFramebuffers();
     createCommandPool();
-    createCommandBuffer();
+    createCommandBuffers();
     createSyncObjects();
 }
 
 void TriangleApp::mainLoop() {
+    using clock = std::chrono::high_resolution_clock;
+    auto lastTime = clock::now();
+    int frameCount = 0;
+    float fps = 0.0f;
+
     while (!glfwWindowShouldClose(window) && !interrupt) {
         glfwPollEvents();
         drawFrame();
+
+        frameCount++;
+        auto now = clock::now();
+        if (const float elapsed = std::chrono::duration<float>(now - lastTime).count(); elapsed >= 1.0f) {
+            fps = static_cast<float>(frameCount) / elapsed;
+            frameCount = 0;
+            lastTime = now;
+            std::string title = "Flare - FPS: " + std::to_string(static_cast<int>(fps));
+            glfwSetWindowTitle(window, title.c_str());
+        }
+
     }
 
     vkDeviceWaitIdle(device);
 }
 
-void TriangleApp::cleanup() {
-    vkDestroySemaphore(device, imageAvailableSemaphore, nullptr);
-    vkDestroySemaphore(device, renderFinishedSemaphore, nullptr);
-    vkDestroyFence(device, inFlightFence, nullptr);
-
-    vkDestroyCommandPool(device, commandPool, nullptr);
-
+void TriangleApp::cleanupSwapChain() const {
     for (const auto framebuffer : swapChainFramebuffers) {
         vkDestroyFramebuffer(device, framebuffer, nullptr);
     }
-
-    vkDestroyPipeline(device, graphicsPipeline, nullptr);
-    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-    vkDestroyRenderPass(device, renderPass, nullptr);
 
     for (const auto imageView : swapChainImageViews) {
         vkDestroyImageView(device, imageView, nullptr);
     }
 
     vkDestroySwapchainKHR(device, swapChain, nullptr);
+}
+
+
+void TriangleApp::cleanup() const {
+    cleanupSwapChain();
+
+    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+
+    vkDestroyRenderPass(device, renderPass, nullptr);
+
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+        vkDestroyFence(device, inFlightFences[i], nullptr);
+    }
+    for (int i = 0; i < swapChainImages.size(); i++) {
+        vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+    }
+
+    vkDestroyCommandPool(device, commandPool, nullptr);
 
     vkDestroyDevice(device, nullptr);
 
@@ -195,14 +206,15 @@ void TriangleApp::createInstance() {
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "Flare";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    appInfo.apiVersion = VK_API_VERSION_1_1;
 
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
-
-    const auto extensions = getRequiredExtensions();
-    if (!checkExtensionSupport(extensions)) {
+    // Get both GLFW's required extensions and the ones we ask for
+    auto extensions = getRequiredInstanceExtensions();
+    extensions.insert(extensions.end(), instanceExtensions.begin(), instanceExtensions.end());
+    if (!checkInstanceExtensionSupport(extensions)) {
         throw std::runtime_error("Extensions not supported");
     }
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
@@ -266,10 +278,26 @@ void TriangleApp::selectPhysicalDevice() {
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-    for (const auto& device : devices) {
-        if (isDeviceSuitable(device)) {
-            physicalDevice = device;
-            break;  // Use the first suitable device. TODO: priority-based device selection
+    // Rudimentary device scoring TODO: fine-tune priority-based device selection
+    int bestScore = -1;
+
+    for (const auto& dev : devices) {
+        VkPhysicalDeviceProperties props;
+        VkPhysicalDeviceFeatures features;
+        vkGetPhysicalDeviceProperties(dev, &props);
+        vkGetPhysicalDeviceFeatures(dev, &features);
+
+        int score = 0;
+        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            score += 1000;
+        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            score += 100;
+        // Add more criteria as needed, e.g. VRAM:
+        score += static_cast<int>(props.limits.maxImageDimension2D);
+
+        if (isDeviceSuitable(dev) && score > bestScore) {
+            physicalDevice = dev;
+            bestScore = score;
         }
     }
 
@@ -375,6 +403,24 @@ void TriangleApp::createSwapChain() {
 
     swapChainImageFormat = format;
     swapChainExtent = extent;
+}
+
+void TriangleApp::recreateSwapChain() {
+    std::cout << "Recreating swap chain" << std::endl;
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(window, &width, &height);
+    while (width == 0 || height == 0) {
+        glfwGetFramebufferSize(window, &width, &height);
+        glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(device);
+
+    cleanupSwapChain();
+
+    createSwapChain();
+    createImageViews();
+    createFramebuffers();
 }
 
 void TriangleApp::createImageViews() {
@@ -597,19 +643,21 @@ void TriangleApp::createCommandPool() {
     }
 }
 
-void TriangleApp::createCommandBuffer() {
+void TriangleApp::createCommandBuffers() {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = commandPool;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
+    allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
 
-    if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
+    if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffers!");
     }
 }
 
 void TriangleApp::createSyncObjects() {
+    renderFinishedSemaphores.resize(swapChainImages.size());
+
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -617,42 +665,55 @@ void TriangleApp::createSyncObjects() {
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
-    vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create semaphores!");
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
+            vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create synchronization objects for a frame!");
+        }
+    }
+    for (size_t i = 0; i < swapChainImages.size(); i++) {
+        if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create synchronization objects for a frame!");
+        }
     }
 
-    if (vkCreateFence(device, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create fence!");
-    }
 }
 
 void TriangleApp::drawFrame() {
-    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX); // TODO: add timeout
-    vkResetFences(device, 1, &inFlightFence);
+    vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX); // TODO: add timeout
 
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
-    vkResetCommandBuffer(commandBuffer, 0);
-    recordCommandBuffer(commandBuffer, imageIndex);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreateSwapChain();
+        return;
+    }
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        throw std::runtime_error("Failed to acquire swap chain image!");
+    }
+    // Only reset the fence if we are submitting work
+    vkResetFences(device, 1, &inFlightFences[currentFrame]);
+
+    vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+    recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-    const VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+    const VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
     constexpr VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-    const VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+    submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
+    const VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[imageIndex]};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
-    if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS) {
-        throw std::runtime_error("failed to submit draw command buffer!");
+    if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to submit draw command buffer!");
     }
 
     VkPresentInfoKHR presentInfo{};
@@ -666,160 +727,46 @@ void TriangleApp::drawFrame() {
     presentInfo.pImageIndices = &imageIndex;
     presentInfo.pResults = nullptr; // Optional
 
-    vkQueuePresentKHR(presentQueue, &presentInfo);
+    result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+        framebufferResized = false;
+        recreateSwapChain();
+    } else if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to present swap chain image!");
+    }
+
+    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
+std::vector<const char*> TriangleApp::getRequiredInstanceExtensions() {
+    uint32_t glfwExtensionCount = 0;
+    const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
-void TriangleApp::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const {
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = 0; // Optional
-    beginInfo.pInheritanceInfo = nullptr; // Optional
+    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
-    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to begin recording command buffer!");
+    if (enableValidationLayers) {
+        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = renderPass;
-    renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = swapChainExtent;
-    constexpr VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(swapChainExtent.width);
-    viewport.height = static_cast<float>(swapChainExtent.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = swapChainExtent;
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-
-    vkCmdEndRenderPass(commandBuffer);
-
-    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("failed to record command buffer!");
-    }
+    return extensions;
 }
 
-VkShaderModule TriangleApp::createShaderModule(const std::vector<char>& code) const {
-    VkShaderModuleCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    createInfo.codeSize = code.size();
-    createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+bool TriangleApp::checkInstanceExtensionSupport(const std::vector<const char*>& requiredExtensions) {
+    // Fetching available extensions
+    uint32_t extensionCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
 
-    VkShaderModule shaderModule;
-    if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create shader module!");
+    std::vector<VkExtensionProperties> extensions(extensionCount);
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
+
+    std::set<std::string> remainingRequiredExtensions(requiredExtensions.begin(), requiredExtensions.end());
+
+    for (const auto&[extensionName, specVersion] : extensions) {
+        remainingRequiredExtensions.erase(extensionName);
     }
 
-    return shaderModule;
-}
-
-VkSurfaceFormatKHR TriangleApp::selectSwapSurfaceFormat(
-    const std::vector<VkSurfaceFormatKHR> &availableFormats) {
-
-    for (const auto& availableFormat : availableFormats) {
-        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-            return availableFormat;
-        }
-    }
-    // TODO: ranking formats or user specification
-    // If preferred format can't be found, use the first specified format
-    return availableFormats[0];
-}
-
-VkPresentModeKHR TriangleApp::selectSwapPresentMode(
-    const std::vector<VkPresentModeKHR> &availablePresentModes) {
-    // Triple buffering is the best option for most cases
-    for (const auto& availablePresentMode : availablePresentModes) {
-        if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-            return availablePresentMode;
-        }
-    }
-
-    return VK_PRESENT_MODE_FIFO_KHR;
-}
-
-VkExtent2D TriangleApp::selectSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) const {
-
-    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
-        return capabilities.currentExtent;
-    }
-
-    int width, height;
-    glfwGetFramebufferSize(window, &width, &height);
-
-    VkExtent2D actualExtent = {
-        static_cast<uint32_t>(width),
-        static_cast<uint32_t>(height)
-    };
-
-    actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width,
-                                    capabilities.maxImageExtent.width);
-    actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height,
-                                     capabilities.maxImageExtent.height);
-
-    return actualExtent;
-}
-
-SwapChainSupportDetails TriangleApp::querySwapChainSupport(VkPhysicalDevice device) const {
-    SwapChainSupportDetails details = {};
-
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
-
-    uint32_t formatCount;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-
-    if (formatCount != 0) {
-        details.formats.resize(formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
-    }
-
-    uint32_t presentModeCount;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-
-    if (presentModeCount != 0) {
-        details.presentModes.resize(presentModeCount);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
-    }
-
-    return details;
-}
-
-bool TriangleApp::isDeviceSuitable(VkPhysicalDevice device) const {
-    // TODO: auto device suitability ranking OR user selection
-    VkPhysicalDeviceProperties deviceProperties;
-    VkPhysicalDeviceFeatures deviceFeatures;
-    vkGetPhysicalDeviceProperties(device, &deviceProperties);
-    vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-    // TODO: add optimization for VK_KHR_multiview capable devices
-
-    QueueFamilyIndices indices = findQueueFamilies(device);
-
-    const bool deviceExtensionsSupported = checkDeviceExtensionSupport(device);
-    // Query for swap chain support after verifying that it is supported
-    bool swapChainAdequate = false;
-    if (deviceExtensionsSupported) {
-        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
-        swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
-    }
-
-    return indices.isComplete() && deviceExtensionsSupported && swapChainAdequate;
+    return remainingRequiredExtensions.empty();
 }
 
 bool TriangleApp::checkDeviceExtensionSupport(VkPhysicalDevice device) {
@@ -869,15 +816,159 @@ QueueFamilyIndices TriangleApp::findQueueFamilies(VkPhysicalDevice device) const
     return indices;
 }
 
-std::vector<const char*> TriangleApp::getRequiredExtensions() {
-    uint32_t glfwExtensionCount = 0;
-    const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+bool TriangleApp::isDeviceSuitable(VkPhysicalDevice device) const {
+    // TODO: auto device suitability ranking OR user selection
+    VkPhysicalDeviceProperties deviceProperties;
+    VkPhysicalDeviceFeatures deviceFeatures;
+    vkGetPhysicalDeviceProperties(device, &deviceProperties);
+    vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+    // TODO: add optimization for VK_KHR_multiview capable devices
 
-    std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+    QueueFamilyIndices indices = findQueueFamilies(device);
 
-    if (enableValidationLayers) {
-        extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    const bool deviceExtensionsSupported = checkDeviceExtensionSupport(device);
+    // Query for swap chain support after verifying that it is supported
+    bool swapChainAdequate = false;
+    if (deviceExtensionsSupported) {
+        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+        swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
     }
 
-    return extensions;
+    return indices.isComplete() && deviceExtensionsSupported && swapChainAdequate;
+}
+
+SwapChainSupportDetails TriangleApp::querySwapChainSupport(VkPhysicalDevice device) const {
+    SwapChainSupportDetails details = {};
+
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+
+    uint32_t formatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+
+    if (formatCount != 0) {
+        details.formats.resize(formatCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+    }
+
+    uint32_t presentModeCount;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+
+    if (presentModeCount != 0) {
+        details.presentModes.resize(presentModeCount);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+    }
+
+    return details;
+}
+
+VkSurfaceFormatKHR TriangleApp::selectSwapSurfaceFormat(
+    const std::vector<VkSurfaceFormatKHR> &availableFormats) {
+
+    for (const auto& availableFormat : availableFormats) {
+        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            return availableFormat;
+        }
+    }
+    // TODO: ranking formats or user specification
+    // If preferred format can't be found, use the first specified format
+    return availableFormats[0];
+}
+
+VkPresentModeKHR TriangleApp::selectSwapPresentMode(
+    const std::vector<VkPresentModeKHR> &availablePresentModes) {
+    // Triple buffering is the best option for most cases
+    for (const auto& availablePresentMode : availablePresentModes) {
+        if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+            return availablePresentMode;
+        }
+    }
+
+    return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+VkExtent2D TriangleApp::selectSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) const {
+
+    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+        return capabilities.currentExtent;
+    }
+
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+
+    VkExtent2D actualExtent = {
+        static_cast<uint32_t>(width),
+        static_cast<uint32_t>(height)
+    };
+
+    actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width,
+                                    capabilities.maxImageExtent.width);
+    actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height,
+                                     capabilities.maxImageExtent.height);
+
+    return actualExtent;
+}
+
+VkShaderModule TriangleApp::createShaderModule(const std::vector<char>& code) const {
+    VkShaderModuleCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = code.size();
+    createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+    VkShaderModule shaderModule;
+    if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create shader module!");
+    }
+
+    return shaderModule;
+}
+
+void TriangleApp::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const {
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = 0; // Optional
+    beginInfo.pInheritanceInfo = nullptr; // Optional
+
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to begin recording command buffer!");
+    }
+
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = renderPass;
+    renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = swapChainExtent;
+    constexpr VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(swapChainExtent.width);
+    viewport.height = static_cast<float>(swapChainExtent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = swapChainExtent;
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+    vkCmdEndRenderPass(commandBuffer);
+
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("failed to record command buffer!");
+    }
+}
+
+void TriangleApp::framebufferResizeCallback(GLFWwindow *window, int width, int height) {
+    const auto app = static_cast<TriangleApp*>(glfwGetWindowUserPointer(window));
+    app->framebufferResized = true;
 }
