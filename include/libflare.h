@@ -4,6 +4,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "vertex.h"
+
 #include <vector>
 #include <optional>
 #include <string>
@@ -71,6 +73,12 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData);
 
+const std::vector<Vertex> vertices = { // TODO: ABSOLUTELY CHANGE THIS
+    {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
+    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+};
+
 class TriangleApp {
 
 public:
@@ -104,6 +112,10 @@ private:
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
     VkCommandPool commandPool = VK_NULL_HANDLE;
+
+    VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
+
     std::vector<VkCommandBuffer> commandBuffers = std::vector<VkCommandBuffer>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
 
     std::vector<VkSemaphore> imageAvailableSemaphores = std::vector<VkSemaphore>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
@@ -121,7 +133,6 @@ private:
     void cleanup() const;
 
     void createInstance();
-    static void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
     void setupDebugMessenger();
     void createSurface();
     void selectPhysicalDevice();
@@ -133,21 +144,26 @@ private:
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
+    void createVertexBuffer();
     void createCommandBuffers();
     void createSyncObjects();
 
     void drawFrame();
 
+    static void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
     static std::vector<const char*> getRequiredInstanceExtensions();
     static bool checkInstanceExtensionSupport(const std::vector<const char*>& requiredExtensions);
-    [[nodiscard]] static bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-    [[nodiscard]] QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) const;
-    [[nodiscard]] bool isDeviceSuitable(VkPhysicalDevice device) const;
-    [[nodiscard]] SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) const;
+    [[nodiscard]] static bool checkDeviceExtensionSupport(VkPhysicalDevice phyDev);
+    [[nodiscard]] QueueFamilyIndices findQueueFamilies(VkPhysicalDevice phyDev) const;
+    [[nodiscard]] bool isDeviceSuitable(VkPhysicalDevice phyDev) const;
+    [[nodiscard]] SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice phyDev) const;
     static VkSurfaceFormatKHR selectSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     static VkPresentModeKHR selectSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
     [[nodiscard]] VkExtent2D selectSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
     [[nodiscard]] VkShaderModule createShaderModule(const std::vector<char>& code) const;
+    [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+        VkBuffer& buffer, VkDeviceMemory& bufferMemory) const;
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const;
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 };
