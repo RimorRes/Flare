@@ -22,6 +22,9 @@ target_link_libraries(${PROJECT_NAME} glm::glm)
 find_package(glfw3 CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} glfw)
 
+find_package(Stb REQUIRED)
+target_include_directories(${PROJECT_NAME} PRIVATE ${Stb_INCLUDE_DIR})
+
 # Define GLFW_STATIC only for static builds
 if(NOT BUILD_SHARED_LIBS)
     target_compile_definitions(${PROJECT_NAME} PUBLIC GLFW_STATIC)
