@@ -111,6 +111,7 @@ private:
     std::vector<VkImageView> swapChainImageViews;
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline graphicsPipeline = VK_NULL_HANDLE;
 
@@ -122,6 +123,13 @@ private:
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
     VkBuffer indexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
+
+    std::vector<VkBuffer> uniformBuffers = std::vector<VkBuffer>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+    std::vector<VkDeviceMemory> uniformBuffersMemory = std::vector<VkDeviceMemory>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+    std::vector<void*> uniformBuffersMapped = std::vector<void*>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> descriptorSets = std::vector<VkDescriptorSet>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
 
     std::vector<VkCommandBuffer> commandBuffers = std::vector<VkCommandBuffer>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
 
@@ -148,14 +156,19 @@ private:
     void recreateSwapChain();
     void createImageViews();
     void createRenderPass();
+    void createDescriptorSetLayout();
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
     void createVertexBuffer();
     void createIndexBuffer();
+    void createUniformBuffers();
+    void createDescriptorPool();
+    void createDescriptorSets();
     void createCommandBuffers();
     void createSyncObjects();
 
+    void updateUniformBuffer(uint32_t currentImage) const;
     void drawFrame();
 
     static void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
@@ -172,7 +185,7 @@ private:
     [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
         VkBuffer& buffer, VkDeviceMemory& bufferMemory) const;
-    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const;
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const;
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 };

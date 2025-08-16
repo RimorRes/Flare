@@ -2,10 +2,10 @@
 // Created by maxim on 14/08/2025.
 //
 
-#include "../include/vertex.h"
+#include "vertex.h"
 
 #include <vulkan/vulkan.h>
-#include <glm/glm.hpp>
+
 
 VkVertexInputBindingDescription Vertex::getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription{};
