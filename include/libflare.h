@@ -97,7 +97,7 @@ private:
     VkDevice device = VK_NULL_HANDLE;
 
     VkQueue graphicsQueue = VK_NULL_HANDLE;
-    VkQueue presentQueue = VK_NULL_HANDLE;
+    VkQueue presentQueue = VK_NULL_HANDLE;  // TODO: dedicated queue family for transfer if supported on dGPU
 
     VkSwapchainKHR swapChain = VK_NULL_HANDLE;
     std::vector<VkImage> swapChainImages;
@@ -111,7 +111,7 @@ private:
 
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
-    VkCommandPool commandPool = VK_NULL_HANDLE;
+    VkCommandPool commandPool = VK_NULL_HANDLE; // TODO: add dedicated transfer command pool (VK_COMMAND_POOL_CREATE_TRANSIENT_BIT flag)
 
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
@@ -164,6 +164,7 @@ private:
     [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
         VkBuffer& buffer, VkDeviceMemory& bufferMemory) const;
+    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const;
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 };
