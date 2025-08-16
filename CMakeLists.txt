@@ -35,4 +35,13 @@ option(BUILD_EXAMPLES "Build example applications" OFF)
 
 if(BUILD_EXAMPLES)
     add_subdirectory(examples)
+    if (NOT BUILD_SHARED_LIBS)
+        add_custom_command(
+                TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                ${CMAKE_SOURCE_DIR}/data
+                $<TARGET_FILE_DIR:${PROJECT_NAME}>/examples/data
+                COMMENT "Copying data directory to examples/data"
+        )
+    endif()
 endif()
