@@ -73,10 +73,15 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData);
 
-const std::vector<Vertex> vertices = { // TODO: ABSOLUTELY CHANGE THIS
-    {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
-    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+const std::vector<Vertex> vertices = {  // TODO: ABSOLUTELY CHANGE THIS
+    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+};
+
+const std::vector<uint16_t> indices = {
+    0, 1, 2, 2, 3, 0
 };
 
 class TriangleApp {
@@ -115,6 +120,8 @@ private:
 
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
+    VkBuffer indexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory indexBufferMemory = VK_NULL_HANDLE;
 
     std::vector<VkCommandBuffer> commandBuffers = std::vector<VkCommandBuffer>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
 
@@ -145,6 +152,7 @@ private:
     void createFramebuffers();
     void createCommandPool();
     void createVertexBuffer();
+    void createIndexBuffer();
     void createCommandBuffers();
     void createSyncObjects();
 

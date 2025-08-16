@@ -106,7 +106,7 @@ void TriangleApp::initWindow() {
     window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);  // Hide the cursor for a cleaner look
+    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);  // Hide the cursor for a cleaner look
 
 }
 
@@ -123,6 +123,7 @@ void TriangleApp::initVulkan() {
     createFramebuffers();
     createCommandPool();
     createVertexBuffer();
+    createIndexBuffer();
     createCommandBuffers();
     createSyncObjects();
 }
@@ -167,6 +168,9 @@ void TriangleApp::cleanupSwapChain() const {
 
 void TriangleApp::cleanup() const {
     cleanupSwapChain();
+
+    vkDestroyBuffer(device, indexBuffer, nullptr);
+    vkFreeMemory(device, indexBufferMemory, nullptr);
 
     vkDestroyBuffer(device, vertexBuffer, nullptr);
     vkFreeMemory(device, vertexBufferMemory, nullptr);
@@ -661,6 +665,26 @@ void TriangleApp::createVertexBuffer() {
     vkFreeMemory(device, stagingBufferMemory, nullptr);
 }
 
+void TriangleApp::createIndexBuffer() {
+    VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+    void* data;
+    vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+    memcpy(data, indices.data(), (size_t) bufferSize);
+    vkUnmapMemory(device, stagingBufferMemory);
+
+    createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
+
+    copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+
+    vkDestroyBuffer(device, stagingBuffer, nullptr);
+    vkFreeMemory(device, stagingBufferMemory, nullptr);
+}
+
 void TriangleApp::createCommandBuffers() {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1069,7 +1093,9 @@ void TriangleApp::recordCommandBuffer(VkCommandBuffer commandBuffer, const uint3
         const VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-        vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
     vkCmdEndRenderPass(commandBuffer);
 
