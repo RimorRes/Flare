@@ -17,8 +17,8 @@ constexpr bool enableValidationLayers = true;
 #endif
 
 
-constexpr uint32_t WIDTH = 800;
-constexpr uint32_t HEIGHT = 600;
+constexpr uint32_t WIDTH = 2560;// 800;
+constexpr uint32_t HEIGHT = 1440;// 600;
 
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -74,14 +74,30 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     void* pUserData);
 
 const std::vector<Vertex> vertices = {  // TODO: ABSOLUTELY CHANGE THIS
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+    {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{-0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
 };
 
 const std::vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0
+    // Front face (z = 0.5)
+    0, 1, 2,  2, 3, 0,
+    // Back face (z = -0.5)
+    4, 7, 6,  6, 5, 4,
+    // Left face (x = -0.5)
+    4, 0, 3,  3, 7, 4,
+    // Right face (x = 0.5)
+    1, 5, 6,  6, 2, 1,
+    // Top face (y = 0.5)
+    3, 2, 6,  6, 7, 3,
+    // Bottom face (y = -0.5)
+    4, 5, 1,  1, 0, 4
 };
 
 class TriangleApp {
@@ -119,8 +135,14 @@ private:
 
     VkCommandPool commandPool = VK_NULL_HANDLE; // TODO: add dedicated transfer command pool (VK_COMMAND_POOL_CREATE_TRANSIENT_BIT flag)
 
+    VkImage depthImage = VK_NULL_HANDLE;
+    VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
+    VkImageView depthImageView = VK_NULL_HANDLE;
+
     VkImage textureImage = VK_NULL_HANDLE;
     VkDeviceMemory textureImageMemory = VK_NULL_HANDLE;
+    VkImageView textureImageView = VK_NULL_HANDLE;
+    VkSampler textureSampler = VK_NULL_HANDLE;
 
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
@@ -163,7 +185,10 @@ private:
     void createGraphicsPipeline();
     void createFramebuffers();
     void createCommandPool();
+    void createDepthResources();
     void createTextureImage();
+    void createTextureImageView();
+    void createTextureSampler();
     void createVertexBuffer();
     void createIndexBuffer();
     void createUniformBuffers();
@@ -185,6 +210,7 @@ private:
     static VkSurfaceFormatKHR selectSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     static VkPresentModeKHR selectSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
     [[nodiscard]] VkExtent2D selectSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
+    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) const;
     [[nodiscard]] VkShaderModule createShaderModule(const std::vector<char>& code) const;
     [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
@@ -198,6 +224,10 @@ private:
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const;
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const;
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling,
+        VkFormatFeatureFlags features);
+    VkFormat findDepthFormat();
+    static bool hasStencilComponent(VkFormat format);
 };
 
 #endif //FLARE_LIBRARY_H
