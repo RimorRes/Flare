@@ -23,6 +23,8 @@ find_package(glfw3 CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} glfw)
 # stb_image
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/external/stb)
+# tinyobjloader
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/external/tinyobjloader)
 
 # Define GLFW_STATIC only for static builds
 if(NOT BUILD_SHARED_LIBS)

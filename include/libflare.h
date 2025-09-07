@@ -20,6 +20,9 @@ constexpr bool enableValidationLayers = true;
 constexpr uint32_t WIDTH = 2560;// 800;
 constexpr uint32_t HEIGHT = 1440;// 600;
 
+const std::string MODEL_PATH = "data/models/viking_room.obj";
+const std::string TEXTURE_PATH = "data/textures/viking_room.png";
+
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<const char*> validationLayers = {
@@ -73,32 +76,6 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData);
 
-const std::vector<Vertex> vertices = {  // TODO: ABSOLUTELY CHANGE THIS
-    {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
-};
-
-const std::vector<uint16_t> indices = {
-    // Front face (z = 0.5)
-    0, 1, 2,  2, 3, 0,
-    // Back face (z = -0.5)
-    4, 7, 6,  6, 5, 4,
-    // Left face (x = -0.5)
-    4, 0, 3,  3, 7, 4,
-    // Right face (x = 0.5)
-    1, 5, 6,  6, 2, 1,
-    // Top face (y = 0.5)
-    3, 2, 6,  6, 7, 3,
-    // Bottom face (y = -0.5)
-    4, 5, 1,  1, 0, 4
-};
 
 class TriangleApp {
 
@@ -144,6 +121,8 @@ private:
     VkImageView textureImageView = VK_NULL_HANDLE;
     VkSampler textureSampler = VK_NULL_HANDLE;
 
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
     VkBuffer vertexBuffer = VK_NULL_HANDLE;
     VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
     VkBuffer indexBuffer = VK_NULL_HANDLE;
@@ -189,6 +168,7 @@ private:
     void createTextureImage();
     void createTextureImageView();
     void createTextureSampler();
+    void loadModel();
     void createVertexBuffer();
     void createIndexBuffer();
     void createUniformBuffers();

@@ -7,6 +7,10 @@
 #include <vulkan/vulkan.h>
 
 
+bool Vertex::operator==(const Vertex& other) const {
+    return pos == other.pos && color == other.color && texCoord == other.texCoord;
+}
+
 VkVertexInputBindingDescription Vertex::getBindingDescription() {
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
