@@ -1,5 +1,7 @@
 #version 450
 
+#extension GL_EXT_multiview : enable
+
 layout(binding = 0) uniform UniformBufferObject {
     mat4 model[2];
     mat4 view[2];

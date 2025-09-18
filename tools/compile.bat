@@ -1,2 +1,4 @@
 C:\VulkanSDK\1.4.321.1\Bin\glslc.exe shader.vert -o vert.spv
 C:\VulkanSDK\1.4.321.1\Bin\glslc.exe shader.frag -o frag.spv
+C:\VulkanSDK\1.4.321.1\Bin\glslc.exe viewdisplay.vert -o displayvert.spv
+C:\VulkanSDK\1.4.321.1\Bin\glslc.exe viewdisplay.frag -o displayfrag.spv

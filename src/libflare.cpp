@@ -84,7 +84,7 @@ void DestroyDebugUtilsMessengerEXT(
     VkDebugUtilsMessengerEXT debugMessenger,
     const VkAllocationCallbacks* pAllocator) {
 
-    const auto func = reinterpret_cast<PFN_vkDestroyDebugUtilsMessenger_EXT>(
+    const auto func = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
         vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT")
         );
     if (func != nullptr) {
@@ -115,8 +115,8 @@ void TriangleApp::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-    window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", glfwGetPrimaryMonitor(), nullptr);
-    // window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", nullptr, nullptr);
+    // window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", glfwGetPrimaryMonitor(), nullptr);
+    window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);  // Hide the cursor for a cleaner look
@@ -132,8 +132,11 @@ void TriangleApp::initVulkan() {
     createSwapChain();
     createImageViews();
     createRenderPass();
+    createDisplayRenderPass();
     createDescriptorSetLayout();
+    createDisplayDescriptorSetLayout();
     createGraphicsPipeline();
+    createDisplayPipeline();
     createCommandPool();
     createDepthResources();
     createMultiviewColorResources();
@@ -147,11 +150,8 @@ void TriangleApp::initVulkan() {
     createIndexBuffer();
     createUniformBuffers();
     createDescriptorPool();
-    createDisplayDescriptorSetLayout();
-    createDisplayRenderPass();
-    createDisplayPipeline();
-    createDisplayDescriptorSets();
     createDescriptorSets();
+    createDisplayDescriptorSets();
     createCommandBuffers();
     createSyncObjects();
 }
@@ -191,15 +191,9 @@ void TriangleApp::cleanupSwapChain() const {
     vkDestroyImage(device, multiviewPass.color.image, nullptr);
     vkFreeMemory(device, multiviewPass.color.memory, nullptr);
 
-    vkDestroyFramebuffer(device, multiviewPass.frameBuffer, nullptr);
-
+    vkDestroyRenderPass(device, multiviewPass.renderPass, nullptr);
     vkDestroySampler(device, multiviewPass.sampler, nullptr);
-
-    vkDestroyPipeline(device, displayPipeline, nullptr);
-    vkDestroyPipelineLayout(device, displayPipelineLayout, nullptr);
-    vkDestroyRenderPass(device, displayRenderPass, nullptr);
-
-    vkDestroyDescriptorSetLayout(device, displayDescriptorSetLayout, nullptr);
+    vkDestroyFramebuffer(device, multiviewPass.frameBuffer, nullptr);
 
     for (const auto framebuffer : swapChainFramebuffers) {
         vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -225,6 +219,8 @@ void TriangleApp::cleanup() const {
 
     vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
+    vkDestroyDescriptorSetLayout(device, displayDescriptorSetLayout, nullptr);
+
     vkDestroySampler(device, textureSampler, nullptr);
     vkDestroyImageView(device, textureImageView, nullptr);
 
@@ -240,6 +236,9 @@ void TriangleApp::cleanup() const {
     vkDestroyPipeline(device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
     vkDestroyRenderPass(device, renderPass, nullptr);
+
+    vkDestroyPipeline(device, displayPipeline, nullptr);
+    vkDestroyPipelineLayout(device, displayPipelineLayout, nullptr);
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
@@ -571,7 +570,7 @@ void TriangleApp::createRenderPass() {
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies = &dependency;
 
-    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
+    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &multiviewPass.renderPass) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create render pass!");
     }
 }
@@ -719,7 +718,8 @@ void TriangleApp::createGraphicsPipeline() {
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = pipelineLayout;
-    pipelineInfo.renderPass = renderPass;
+    // Use the multiview render pass for the main scene pipeline
+    pipelineInfo.renderPass = multiviewPass.renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional, TODO: investigate deriving from existing pipelines
 
@@ -735,15 +735,14 @@ void TriangleApp::createFramebuffers() {
     swapChainFramebuffers.resize(swapChainImageViews.size());
 
     for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-        std::array<VkImageView, 2> attachments = {
-            swapChainImageViews[i],
-            depthImageView
+        std::array<VkImageView, 1> attachments = {
+            swapChainImageViews[i]
         };
 
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+        framebufferInfo.attachmentCount = 1;
         framebufferInfo.pAttachments = attachments.data();
         framebufferInfo.width = swapChainExtent.width;
         framebufferInfo.height = swapChainExtent.height;
@@ -771,8 +770,9 @@ void TriangleApp::createCommandPool() {
 void TriangleApp::createDepthResources() {
     const VkFormat depthFormat = findDepthFormat();
 
+    // Add VK_IMAGE_USAGE_SAMPLED_BIT to usage flags for shader read layout compatibility
     createImage(swapChainExtent.width, swapChainExtent.height, MULTIVIEW_LAYER_COUNT,
-                depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage, depthImageMemory);
     depthImageView = createImageView(depthImage, VK_IMAGE_VIEW_TYPE_2D_ARRAY, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, MULTIVIEW_LAYER_COUNT);
 
@@ -836,12 +836,12 @@ void TriangleApp::createMultiviewFramebuffer() {
 
     VkFramebufferCreateInfo framebufferInfo{};
     framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    framebufferInfo.renderPass = renderPass;
+    framebufferInfo.renderPass = multiviewPass.renderPass;
     framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
     framebufferInfo.pAttachments = attachments.data();
     framebufferInfo.width = swapChainExtent.width;
     framebufferInfo.height = swapChainExtent.height;
-    framebufferInfo.layers = MULTIVIEW_LAYER_COUNT;
+    framebufferInfo.layers = 1;
 
     if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &multiviewPass.frameBuffer) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create multiview framebuffer!");
@@ -1014,15 +1014,15 @@ void TriangleApp::createUniformBuffers() {
 void TriangleApp::createDescriptorPool() {
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT); // main pass only
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // main + display
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2); // main + display sets
 
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create descriptor pool!");
@@ -1658,7 +1658,7 @@ void TriangleApp::recordCommandBuffer(VkCommandBuffer commandBuffer, const uint3
     // --- First Pass: Multiview Render Pass (offscreen, layered color image) ---
     VkRenderPassBeginInfo multiviewPassInfo{};
     multiviewPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    multiviewPassInfo.renderPass = renderPass;
+    multiviewPassInfo.renderPass = multiviewPass.renderPass;
     multiviewPassInfo.framebuffer = multiviewPass.frameBuffer;
     multiviewPassInfo.renderArea.offset = {0, 0};
     multiviewPassInfo.renderArea.extent = swapChainExtent;
@@ -1697,7 +1697,7 @@ void TriangleApp::recordCommandBuffer(VkCommandBuffer commandBuffer, const uint3
     // --- Second Pass: Display Render Pass (swapchain, fullscreen quad) ---
     VkRenderPassBeginInfo displayPassInfo{};
     displayPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    displayPassInfo.renderPass = displayRenderPass;
+    displayPassInfo.renderPass = renderPass;
     displayPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
     displayPassInfo.renderArea.offset = {0, 0};
     displayPassInfo.renderArea.extent = swapChainExtent;
@@ -1791,7 +1791,7 @@ void TriangleApp::createDisplayRenderPass() {
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies = &dependency;
 
-    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &displayRenderPass) != VK_SUCCESS) {
+    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create display render pass!");
     }
 }
@@ -1816,8 +1816,8 @@ void TriangleApp::createDisplayDescriptorSetLayout() {
 
 void TriangleApp::createDisplayPipeline() {
     // Load fullscreen quad vertex and barrel distortion fragment shaders
-    auto vertShaderCode = readFile("data/shaders/fullscreen.spv");
-    auto fragShaderCode = readFile("data/shaders/barrel.spv");
+    auto vertShaderCode = readFile("data/shaders/displayvert.spv");
+    auto fragShaderCode = readFile("data/shaders/displayfrag.spv");
 
     VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
     VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -1918,7 +1918,8 @@ void TriangleApp::createDisplayPipeline() {
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = displayPipelineLayout;
-    pipelineInfo.renderPass = displayRenderPass;
+    // Use the display render pass for the display pipeline
+    pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 

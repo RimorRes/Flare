@@ -17,8 +17,8 @@ constexpr bool enableValidationLayers = true;
 #endif
 
 
-constexpr uint32_t WIDTH = 2560;// 800;
-constexpr uint32_t HEIGHT = 1440;// 600;
+constexpr uint32_t WIDTH = 800;// 2560;
+constexpr uint32_t HEIGHT = 600;// 1440;
 
 const std::string MODEL_PATH = "data/models/viking_room.obj";
 const std::string TEXTURE_PATH = "data/textures/viking_room.png";
@@ -160,7 +160,6 @@ private:
 
     bool framebufferResized = false;
 
-    VkRenderPass displayRenderPass = VK_NULL_HANDLE;
     VkPipelineLayout displayPipelineLayout = VK_NULL_HANDLE;
     VkPipeline displayPipeline = VK_NULL_HANDLE;
     VkDescriptorSetLayout displayDescriptorSetLayout = VK_NULL_HANDLE;
