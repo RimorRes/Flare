@@ -17,8 +17,8 @@ constexpr bool enableValidationLayers = true;
 #endif
 
 
-constexpr uint32_t WIDTH = 800;// 2560;
-constexpr uint32_t HEIGHT = 600;// 1440;
+constexpr uint32_t WIDTH = 2560;// 800;
+constexpr uint32_t HEIGHT = 1440;// 600;
 
 const std::string MODEL_PATH = "data/models/viking_room.obj";
 const std::string TEXTURE_PATH = "data/textures/viking_room.png";
@@ -115,6 +115,7 @@ private:
     std::vector<VkImage> swapChainImages;
     VkFormat swapChainImageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D swapChainExtent = {};
+    VkExtent2D multiviewExtent = {};
     std::vector<VkImageView> swapChainImageViews;
 
     VkRenderPass renderPass = VK_NULL_HANDLE;

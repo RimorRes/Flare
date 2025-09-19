@@ -115,8 +115,8 @@ void TriangleApp::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-    // window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", glfwGetPrimaryMonitor(), nullptr);
-    window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", nullptr, nullptr);
+    window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", glfwGetPrimaryMonitor(), nullptr);
+    // window = glfwCreateWindow(WIDTH, HEIGHT, "Flare", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);  // Hide the cursor for a cleaner look
@@ -183,27 +183,42 @@ void TriangleApp::mainLoop() {
 }
 
 void TriangleApp::cleanupSwapChain() const {
-    vkDestroyImageView(device, depthImageView, nullptr);
-    vkDestroyImage(device, depthImage, nullptr);
-    vkFreeMemory(device, depthImageMemory, nullptr);
+    // Per-eye depth target
+    if (depthImageView) vkDestroyImageView(device, depthImageView, nullptr);
+    if (depthImage) vkDestroyImage(device, depthImage, nullptr);
+    if (depthImageMemory) vkFreeMemory(device, depthImageMemory, nullptr);
 
-    vkDestroyImageView(device, multiviewPass.color.view, nullptr);
-    vkDestroyImage(device, multiviewPass.color.image, nullptr);
-    vkFreeMemory(device, multiviewPass.color.memory, nullptr);
+    // Multiview color target
+    if (multiviewPass.color.view) vkDestroyImageView(device, multiviewPass.color.view, nullptr);
+    if (multiviewPass.color.image) vkDestroyImage(device, multiviewPass.color.image, nullptr);
+    if (multiviewPass.color.memory) vkFreeMemory(device, multiviewPass.color.memory, nullptr);
 
-    vkDestroyRenderPass(device, multiviewPass.renderPass, nullptr);
-    vkDestroySampler(device, multiviewPass.sampler, nullptr);
-    vkDestroyFramebuffer(device, multiviewPass.frameBuffer, nullptr);
+    // Multiview framebuffer/render pass/pipeline
+    if (multiviewPass.frameBuffer) vkDestroyFramebuffer(device, multiviewPass.frameBuffer, nullptr);
+    if (multiviewPass.renderPass) vkDestroyRenderPass(device, multiviewPass.renderPass, nullptr);
+    if (graphicsPipeline) vkDestroyPipeline(device, graphicsPipeline, nullptr);
 
+    // Display framebuffers
     for (const auto framebuffer : swapChainFramebuffers) {
-        vkDestroyFramebuffer(device, framebuffer, nullptr);
+        if (framebuffer) vkDestroyFramebuffer(device, framebuffer, nullptr);
     }
 
+    // Display pipeline/render pass
+    if (displayPipeline) vkDestroyPipeline(device, displayPipeline, nullptr);
+    if (renderPass) vkDestroyRenderPass(device, renderPass, nullptr);
+
+    // Descriptor pool used by display pass (will be recreated)
+    if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+
+    // Multiview color sampler
+    if (multiviewPass.sampler) vkDestroySampler(device, multiviewPass.sampler, nullptr);
+
+    // Swapchain image views and swapchain
     for (const auto imageView : swapChainImageViews) {
-        vkDestroyImageView(device, imageView, nullptr);
+        if (imageView) vkDestroyImageView(device, imageView, nullptr);
     }
 
-    vkDestroySwapchainKHR(device, swapChain, nullptr);
+    if (swapChain) vkDestroySwapchainKHR(device, swapChain, nullptr);
 }
 
 
@@ -214,8 +229,6 @@ void TriangleApp::cleanup() const {
         vkDestroyBuffer(device, uniformBuffers[i], nullptr);
         vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
     }
-
-    vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
     vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
@@ -233,11 +246,8 @@ void TriangleApp::cleanup() const {
     vkDestroyBuffer(device, vertexBuffer, nullptr);
     vkFreeMemory(device, vertexBufferMemory, nullptr);
 
-    vkDestroyPipeline(device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-    vkDestroyRenderPass(device, renderPass, nullptr);
 
-    vkDestroyPipeline(device, displayPipeline, nullptr);
     vkDestroyPipelineLayout(device, displayPipelineLayout, nullptr);
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -467,6 +477,8 @@ void TriangleApp::createSwapChain() {
 
     swapChainImageFormat = format;
     swapChainExtent = extent;
+    // Offscreen multiview render target is half the swapchain width per eye
+    multiviewExtent = { extent.width / 2, extent.height };
 }
 
 void TriangleApp::recreateSwapChain() {
@@ -479,18 +491,34 @@ void TriangleApp::recreateSwapChain() {
 
     vkDeviceWaitIdle(device);
 
+    // Tear down old swapchain-dependent resources
     cleanupSwapChain();
 
+    // Recreate in correct order
     createSwapChain();
     createImageViews();
+
+    // Multiview (offscreen) pass depends on extent; recreate render pass and graphics pipeline first
+    createRenderPass();            // multiviewPass.renderPass
+    createGraphicsPipeline();      // graphicsPipeline bound to multiview render pass
+
+    // Depth and color targets sized to multiviewExtent
     createDepthResources();
     createMultiviewColorResources();
     createMultiviewFramebuffer();
-    createDescriptorPool();
-    createDisplayDescriptorSetLayout();
+
+    // Display pass and its resources (depend on swapchain extent)
     createDisplayRenderPass();
     createDisplayPipeline();
+
+    // Descriptor pool/sets that reference multiview color image must be recreated after color resources
+    createDescriptorPool();
+    // Recreate main (scene) descriptor sets as the pool was destroyed
+    createDescriptorSets();
+    createDisplayDescriptorSetLayout();
     createDisplayDescriptorSets();
+
+    // Swapchain framebuffers for display pass
     createFramebuffers();
 }
 
@@ -771,7 +799,7 @@ void TriangleApp::createDepthResources() {
     const VkFormat depthFormat = findDepthFormat();
 
     // Add VK_IMAGE_USAGE_SAMPLED_BIT to usage flags for shader read layout compatibility
-    createImage(swapChainExtent.width, swapChainExtent.height, MULTIVIEW_LAYER_COUNT,
+    createImage(multiviewExtent.width, multiviewExtent.height, MULTIVIEW_LAYER_COUNT,
                 depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage, depthImageMemory);
     depthImageView = createImageView(depthImage, VK_IMAGE_VIEW_TYPE_2D_ARRAY, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, MULTIVIEW_LAYER_COUNT);
@@ -782,8 +810,8 @@ void TriangleApp::createDepthResources() {
 void TriangleApp::createMultiviewColorResources() {
     // Create a layered color image for stereo rendering
     VkFormat colorFormat = swapChainImageFormat;
-    uint32_t width = swapChainExtent.width;
-    uint32_t height = swapChainExtent.height;
+    uint32_t width = multiviewExtent.width;
+    uint32_t height = multiviewExtent.height;
 
     // 1. Create image
     createImage(width, height, MULTIVIEW_LAYER_COUNT, colorFormat, VK_IMAGE_TILING_OPTIMAL,
@@ -839,8 +867,8 @@ void TriangleApp::createMultiviewFramebuffer() {
     framebufferInfo.renderPass = multiviewPass.renderPass;
     framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
     framebufferInfo.pAttachments = attachments.data();
-    framebufferInfo.width = swapChainExtent.width;
-    framebufferInfo.height = swapChainExtent.height;
+    framebufferInfo.width = multiviewExtent.width;
+    framebufferInfo.height = multiviewExtent.height;
     framebufferInfo.layers = 1;
 
     if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &multiviewPass.frameBuffer) != VK_SUCCESS) {
@@ -1122,7 +1150,7 @@ void TriangleApp::updateUniformBuffer(const uint32_t currentImage) const {
     constexpr float focalLength = 1.0f;     // meters
     constexpr float zNear = 0.1f;
     constexpr float zFar = 10.0f;
-    const float aspect = static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height);
+    const float aspect = static_cast<float>(multiviewExtent.width) / static_cast<float>(multiviewExtent.height);
     const float fovY = glm::radians(45.0f);
 
     // Camera base
@@ -1661,7 +1689,7 @@ void TriangleApp::recordCommandBuffer(VkCommandBuffer commandBuffer, const uint3
     multiviewPassInfo.renderPass = multiviewPass.renderPass;
     multiviewPassInfo.framebuffer = multiviewPass.frameBuffer;
     multiviewPassInfo.renderArea.offset = {0, 0};
-    multiviewPassInfo.renderArea.extent = swapChainExtent;
+    multiviewPassInfo.renderArea.extent = multiviewExtent;
     std::array<VkClearValue, 2> multiviewClearValues{};
     multiviewClearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     multiviewClearValues[1].depthStencil = {1.0f, 0};
@@ -1674,15 +1702,15 @@ void TriangleApp::recordCommandBuffer(VkCommandBuffer commandBuffer, const uint3
     VkViewport viewport{};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = static_cast<float>(swapChainExtent.width);
-    viewport.height = static_cast<float>(swapChainExtent.height);
+    viewport.width = static_cast<float>(multiviewExtent.width);
+    viewport.height = static_cast<float>(multiviewExtent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
     VkRect2D scissor{};
     scissor.offset = {0, 0};
-    scissor.extent = swapChainExtent;
+    scissor.extent = multiviewExtent;
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
     const VkBuffer vertexBuffers[] = {vertexBuffer};
@@ -1710,6 +1738,10 @@ void TriangleApp::recordCommandBuffer(VkCommandBuffer commandBuffer, const uint3
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, displayPipeline);
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, displayPipelineLayout,
         0, 1, &displayDescriptorSets[currentFrame], 0, nullptr);
+    // Reset viewport and scissor to full swapchain size for display pass
+    viewport.width = static_cast<float>(swapChainExtent.width);
+    viewport.height = static_cast<float>(swapChainExtent.height);
+    scissor.extent = swapChainExtent;
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
     vkCmdDraw(commandBuffer, 3, 1, 0, 0); // Fullscreen triangle (vertex shader generates quad)
