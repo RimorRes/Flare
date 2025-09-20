@@ -11,9 +11,9 @@
 
 
 struct UniformBufferObject   {
-    alignas(16) glm::mat4 model;
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 proj;
+    alignas(16) glm::mat4 model[2];
+    alignas(16) glm::mat4 view[2];
+    alignas(16) glm::mat4 proj[2];
 };
 
 

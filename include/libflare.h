@@ -24,6 +24,7 @@ const std::string MODEL_PATH = "data/models/viking_room.obj";
 const std::string TEXTURE_PATH = "data/textures/viking_room.png";
 
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+constexpr int MULTIVIEW_LAYER_COUNT = 2;
 
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -36,7 +37,8 @@ const std::vector<const char*> deviceExtensions = {
 
 const std::vector<const char*> instanceExtensions = {
     VK_KHR_DISPLAY_EXTENSION_NAME,
-    VK_KHR_GET_DISPLAY_PROPERTIES_2_EXTENSION_NAME
+    VK_KHR_GET_DISPLAY_PROPERTIES_2_EXTENSION_NAME,
+    VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME // Added for multiview support
 };
 
 
@@ -53,6 +55,18 @@ struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> presentModes;
+};
+
+struct MultiviewPass {
+    struct FrameBufferAttachment {
+        VkImage image{ VK_NULL_HANDLE };
+        VkDeviceMemory memory{ VK_NULL_HANDLE };
+        VkImageView view{ VK_NULL_HANDLE };
+    } color, depth;
+    VkFramebuffer frameBuffer{ VK_NULL_HANDLE };
+    VkRenderPass renderPass{ VK_NULL_HANDLE };
+    VkDescriptorImageInfo descriptor{ VK_NULL_HANDLE };
+    VkSampler sampler{ VK_NULL_HANDLE };
 };
 
 std::vector<char> readFile(const std::string& filename);
@@ -101,12 +115,15 @@ private:
     std::vector<VkImage> swapChainImages;
     VkFormat swapChainImageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D swapChainExtent = {};
+    VkExtent2D multiviewExtent = {};
     std::vector<VkImageView> swapChainImageViews;
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline graphicsPipeline = VK_NULL_HANDLE;
+
+    MultiviewPass multiviewPass;
 
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
@@ -144,6 +161,11 @@ private:
 
     bool framebufferResized = false;
 
+    VkPipelineLayout displayPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline displayPipeline = VK_NULL_HANDLE;
+    VkDescriptorSetLayout displayDescriptorSetLayout = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> displayDescriptorSets = std::vector<VkDescriptorSet>(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+
 
     void initWindow();
     void initVulkan();
@@ -165,6 +187,8 @@ private:
     void createFramebuffers();
     void createCommandPool();
     void createDepthResources();
+    void createMultiviewColorResources();
+    void createMultiviewFramebuffer();
     void createTextureImage();
     void createTextureImageView();
     void createTextureSampler();
@@ -176,6 +200,10 @@ private:
     void createDescriptorSets();
     void createCommandBuffers();
     void createSyncObjects();
+    void createDisplayRenderPass();
+    void createDisplayPipeline();
+    void createDisplayDescriptorSetLayout();
+    void createDisplayDescriptorSets();
 
     void updateUniformBuffer(uint32_t currentImage) const;
     void drawFrame();
@@ -190,7 +218,7 @@ private:
     static VkSurfaceFormatKHR selectSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     static VkPresentModeKHR selectSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
     [[nodiscard]] VkExtent2D selectSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
-    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) const;
+    VkImageView createImageView(VkImage image, VkImageViewType viewType, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t layerCount) const;
     [[nodiscard]] VkShaderModule createShaderModule(const std::vector<char>& code) const;
     [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
@@ -198,8 +226,8 @@ private:
     VkCommandBuffer beginSingleTimeCommands() const;
     void endSingleTimeCommands(VkCommandBuffer commandBuffer) const;
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const;
-    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
-        VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) const;
+    void createImage(uint32_t width, uint32_t height, uint32_t arrayLayers, VkFormat format,
+                     VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) const;
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) const;
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const;
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) const;
